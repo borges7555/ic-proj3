@@ -1,3 +1,4 @@
 /build
-model.safetensors
+model.safetensors*
+model_restored.safetensors*
 .vscode/
