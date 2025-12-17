@@ -2,3 +2,6 @@
 model.safetensors*
 model_restored.safetensors*
 .vscode/
+images/
+benchmark.py
+main.tex
