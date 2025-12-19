@@ -1,7 +1,7 @@
 # IC Project 3 - LLM Weights Compression
 
 ## Description
-This project implements a specialized compression algorithm for Large Language Model (LLM) weights stored in `safetensors` format (BF16). The strategy uses **Byte-Plane Splitting** combined with **Zstandard (Zstd)** to achieve high compression ratios with extremely fast processing times.
+This project implements a specialized compression algorithm for Large Language Model (LLM) weights stored in `model.safetensors` format (BF16). The strategy uses **Byte-Plane Splitting** combined with **Zstandard (Zstd)** to achieve high compression ratios with extremely fast processing times.
 
 The solution exploits the structure of BF16 numbers (16-bit floating point) by separating the high-entropy mantissa bytes from the low-entropy exponent bytes. This allows the Zstd compressor to find more patterns in the exponent stream, significantly improving compression efficiency compared to standard tools.
 
