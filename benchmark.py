@@ -7,10 +7,15 @@ import lzma
 import zstandard as zstd
 import numpy as np
 import matplotlib.pyplot as plt
+import subprocess
+import re
 
 INPUT_FILE = "model.safetensors"
 CHUNK_SIZE = 100 * 1024 * 1024  # Benchmark on 100 MB
 TEST_DATA = b""
+TEMP_INPUT = "benchmark_sample.bin"
+TEMP_COMPRESSED = "benchmark_sample.zst"
+TEMP_RESTORED = "benchmark_sample.restored"
 
 def load_data():
     global TEST_DATA
@@ -20,6 +25,15 @@ def load_data():
     else:
         # Create dummy data if file doesn't exist (fallback)
         TEST_DATA = os.urandom(CHUNK_SIZE)
+    
+    # Write temp file for C++ benchmark
+    with open(TEMP_INPUT, "wb") as f:
+        f.write(TEST_DATA)
+
+def cleanup():
+    for f in [TEMP_INPUT, TEMP_COMPRESSED, TEMP_RESTORED]:
+        if os.path.exists(f):
+            os.remove(f)
 
 def get_size(data):
     return len(data)
@@ -47,6 +61,52 @@ def benchmark_compressor(name, compress_func, decompress_func):
         "decomp_time": decomp_time,
         "size_mb": size / (1024*1024)
     }
+
+def benchmark_cpp_compressor():
+    # Run C++ executable
+    # Usage: ./build/compressor <input> <compressed> <restored>
+    cmd = ["./build/compressor", TEMP_INPUT, TEMP_COMPRESSED, TEMP_RESTORED]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output = result.stdout
+        
+        # Parse output for times and ratio
+        # Expected output format:
+        # Compression Completed:
+        #   Original: ... MB
+        #   Compressed: ... MB
+        #   Ratio: 1.46x
+        #   Time: 0.5962s
+        # 
+        # Starting decompression (C++)...
+        # Decompression Completed in 0.2370s
+        
+        comp_time_match = re.search(r"Time: ([\d\.]+)s", output)
+        decomp_time_match = re.search(r"Decompression Completed in ([\d\.]+)s", output)
+        
+        comp_time = float(comp_time_match.group(1)) if comp_time_match else 0.0
+        decomp_time = float(decomp_time_match.group(1)) if decomp_time_match else 0.0
+        
+        compressed_size = os.path.getsize(TEMP_COMPRESSED)
+        ratio = len(TEST_DATA) / compressed_size if compressed_size > 0 else 0
+        
+        return {
+            "name": "Split+Zstd (C++)",
+            "ratio": ratio,
+            "comp_time": comp_time,
+            "decomp_time": decomp_time,
+            "size_mb": compressed_size / (1024*1024)
+        }
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error running C++ benchmark: {e}")
+        print(e.stdout)
+        print(e.stderr)
+        return None
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
 # --- Custom Strategy ---
 def split_bytes(data):
@@ -108,18 +168,17 @@ def main():
         results.append(benchmark_compressor(f"Zstd (L{level})", 
             lambda d: cctx.compress(d), 
             lambda d: dctx.decompress(d)))
-            
-    # 5. Custom (Split + Zstd)
-    for level in [1, 3, 9]:
-        results.append(benchmark_compressor(f"Split+Zstd (L{level})", 
-            lambda d: compress_custom(d, level), 
-            lambda d: decompress_custom(d)))
+
+    # 5. Custom (Split + Zstd) - C++
+    cpp_result = benchmark_cpp_compressor()
+    if cpp_result:
+        results.append(cpp_result)
 
     # Print Table
-    print(f"{'Algorithm':<20} | {'Ratio':<10} | {'Comp Time (s)':<15} | {'Decomp Time (s)':<15}")
-    print("-" * 70)
+    print(f"{'Algorithm':<25} | {'Ratio':<10} | {'Comp Time (s)':<15} | {'Decomp Time (s)':<15}")
+    print("-" * 75)
     for r in results:
-        print(f"{r['name']:<20} | {r['ratio']:<10.2f} | {r['comp_time']:<15.4f} | {r['decomp_time']:<15.4f}")
+        print(f"{r['name']:<25} | {r['ratio']:<10.2f} | {r['comp_time']:<15.4f} | {r['decomp_time']:<15.4f}")
 
     # Plotting
     names = [r['name'] for r in results]
@@ -127,7 +186,7 @@ def main():
     comp_times = [r['comp_time'] for r in results]
     
     # Bar Chart: Compression Ratio
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 6))
     bars = plt.bar(names, ratios, color='skyblue')
     plt.title('Compression Ratio Comparison')
     plt.ylabel('Ratio (Original / Compressed)')
@@ -147,6 +206,8 @@ def main():
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig('images/efficiency_comparison.png')
+    
+    cleanup()
 
 if __name__ == "__main__":
     main()

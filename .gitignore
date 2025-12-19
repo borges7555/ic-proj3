@@ -1,5 +1,5 @@
 /build
 model.safetensors*
-model_restored.safetensors*
+model_restored*
 .vscode/
 main.tex
